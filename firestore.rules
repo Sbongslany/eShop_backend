@@ -78,6 +78,19 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // 5a. RETURNS / RMA
+    match /returns/{returnId} {
+      // Customers can read their own returns, admins can read all
+      allow read: if isAuthenticated() && 
+                  (resource.data.customerId == request.auth.uid || isAdmin());
+      
+      // Customers can create returns (handled securely via requestReturn callable function)
+      allow create: if isAuthenticated();
+      
+      // Only admins can update or delete returns (via updateReturnStatus callable function)
+      allow update, delete: if isAdmin();
+    }
+
     // 6. PRODUCTS
     match /products/{productId} {
       allow read: if true; // Storefront needs to read active products

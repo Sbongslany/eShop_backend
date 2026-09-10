@@ -46,9 +46,12 @@ import {
   applyPromoCode,
   removePromoCode,
 } from "./queries/cart";
+import { createOrder } from "./queries/checkout";
 import {
-  createOrder,
-} from "./queries/checkout";
+  requestReturn,
+  updateReturnStatus,
+  updateOrderStatus,
+} from "./queries/returns";
 
 // Export all Cloud Functions
 export {
@@ -96,4 +99,8 @@ export {
   removePromoCode,
   // Checkout
   createOrder,
+  // Order & Returns Management
+  requestReturn,
+  updateReturnStatus,
+  updateOrderStatus,
 };
