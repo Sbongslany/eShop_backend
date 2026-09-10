@@ -10,8 +10,8 @@ import {
   getSavedViews,
 } from "./queries/catalog";
 import {
-  onCustomerCreated,
-  onCustomerLogin,
+  registerCustomer,
+  updateLastLogin,
 } from "./auth/customerAuth";
 import {
   updateCustomerProfile,
@@ -23,6 +23,14 @@ import {
   getWishlist,
   getAllCustomers,
 } from "./queries/customers";
+import {
+  createProduct,
+  updateProduct,
+  archiveProduct,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+} from "./queries/products";
 
 // Export all Cloud Functions
 export {
@@ -36,9 +44,9 @@ export {
   getFilteredProducts,
   saveView,
   getSavedViews,
-  // Customer Auth Triggers
-  onCustomerCreated,
-  onCustomerLogin,
+  // Customer Auth
+  registerCustomer,
+  updateLastLogin,
   // Customer Management
   updateCustomerProfile,
   addAddress,
@@ -48,4 +56,11 @@ export {
   removeFromWishlist,
   getWishlist,
   getAllCustomers,
+  // Product & Category Management
+  createProduct,
+  updateProduct,
+  archiveProduct,
+  createCategory,
+  updateCategory,
+  deleteCategory,
 };

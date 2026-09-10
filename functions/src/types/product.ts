@@ -1,16 +1,52 @@
-// functions/src/types/product.ts
+import { Timestamp } from "firebase-admin/firestore";
+
 export interface Product {
   id: string;
   name: string;
-  sku: string; // Stock Keeping Unit (unique)
-
+  slug: string; // URL-friendly name (e.g., "wireless-mouse")
+  description: string;
+  
+  // Pricing & Inventory
+  priceCents: number;
+  compareAtPriceCents?: number; // For showing "was $X, now $Y"
   currentStock: number;
-  lowStockThreshold: number; // e.g., 5. Triggers alert when currentStock <= 5
+  lowStockThreshold: number;
+  
+  // Categorization
+  categoryId: string;
+  categoryName: string; // Denormalized for easy filtering
+  brand?: string;
+  
+  // Media
+  primaryImageUrl: string;
+  imageUrls: string[];
+  
+  // Variants (e.g., Size, Color)
+  hasVariants: boolean;
+  variants?: ProductVariant[];
+  
+  // Metadata
+  isActive: boolean;
+  isFeatured: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
 
-  price: number; // In cents
-  category: string; // Denormalized category name for easy filtering
+export interface ProductVariant {
+  id: string;
+  sku: string;
+  name: string; // e.g., "Red / Large"
+  attributes: Record<string, string>; // e.g., { color: "Red", size: "Large" }
+  priceCents: number; // Can override base price
+  currentStock: number;
+}
 
-  isActive: boolean; // Soft delete / hide from storefront
-
-  updatedAt: any; // Firestore Timestamp
+export interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  parentId?: string; // For nested categories (e.g., Electronics > Laptops)
+  imageUrl?: string;
+  isActive: boolean;
+  createdAt: Timestamp;
 }
