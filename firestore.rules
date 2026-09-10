@@ -129,6 +129,24 @@ service cloud.firestore {
       allow write: if false;
     }
 
+        // 10. CARTS (Users can read/write their own, guests via sessionId)
+    match /carts/{cartId} {
+      // Authenticated users can only access their own cart
+      allow read, write: if isAuthenticated() && 
+                         (resource.data.customerId == request.auth.uid || 
+                          request.resource.data.customerId == request.auth.uid);
+      
+      // For guest carts (cartId starts with "guest_"), allow access
+      // In production, you'd verify the sessionId more securely
+      allow read, write: if cartId.startsWith("guest_");
+    }
+
+    // 11. PROMO CODES (Anyone can read active codes, only admins can manage)
+    match /promo_codes/{promoId} {
+      allow read: if true; // Storefront needs to validate codes
+      allow create, update, delete: if hasRole('super_admin') || hasRole('admin');
+    }
+
     // Deny access to everything else by default
     match /{document=**} {
       allow read, write: if false;

@@ -38,6 +38,14 @@ import {
   releaseStock,
   confirmStockDeduction,
 } from "./queries/inventory";
+import {
+  getCart,
+  addToCart,
+  updateCartItemQuantity,
+  clearCart,
+  applyPromoCode,
+  removePromoCode,
+} from "./queries/cart";
 
 // Export all Cloud Functions
 export {
@@ -76,4 +84,11 @@ export {
   reserveStock,
   releaseStock,
   confirmStockDeduction,
+  // Cart & Promo Management
+  getCart,
+  addToCart,
+  updateCartItemQuantity,
+  clearCart,
+  applyPromoCode,
+  removePromoCode,
 };
