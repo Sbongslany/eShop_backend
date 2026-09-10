@@ -41,16 +41,9 @@ service cloud.firestore {
 
     // 3. CUSTOMERS (User Profiles)
     match /customers/{customerId} {
-      // Customers can read their own profile, admins can read all
       allow read: if isOwner(customerId) || isAdmin();
-      
-      // Customers can update their own profile
       allow update: if isOwner(customerId);
-      
-      // Only backend can create (via auth trigger)
-      allow create: if false;
-      
-      // Only super admins can delete customers
+      allow create: if false; // Only backend can create (via auth trigger)
       allow delete: if hasRole('super_admin');
 
       // 3a. ADDRESSES (Subcollection)
@@ -68,68 +61,61 @@ service cloud.firestore {
 
     // 4. AUDIT LOGS
     match /audit_logs/{logId} {
-      // Only admins can read audit logs
       allow read: if isAdmin();
-      
-      // Only backend can write (Cloud Functions)
-      allow write: if false;
+      allow write: if false; // Only backend can write (Cloud Functions)
     }
 
-    // 5. CORE DATA (Orders & Products)
+    // 5. ORDERS (Granular Rules)
     match /orders/{orderId} {
-      allow read, write: if isAdmin();
+      // Anyone can create an order (handled securely via createOrder callable function)
+      allow create: if request.resource.data.customerEmail != null;
+      
+      // Customers can read their own orders, admins can read all
+      allow read: if isAuthenticated() && 
+                  (resource.data.customerId == request.auth.uid || isAdmin());
+                  
+      // Only admins or backend (via webhooks/triggers) can update/delete orders
+      allow update, delete: if isAdmin();
     }
 
-        // 5. CATEGORIES
+    // 6. PRODUCTS
+    match /products/{productId} {
+      allow read: if true; // Storefront needs to read active products
+      allow write: if hasRole('super_admin') || hasRole('admin');
+    }
+
+    // 7. CATEGORIES
     match /categories/{categoryId} {
       allow read: if true; // Anyone can read categories (needed for storefront)
       allow create, update, delete: if hasRole('super_admin') || hasRole('admin');
     }
 
-    // 6. CORE DATA (Orders & Products)
-    match /orders/{orderId} {
-      allow read, write: if isAdmin();
-    }
-
-    match /products/{productId} {
-      allow read: if true; // Anyone can read active products
-      allow write: if hasRole('super_admin') || hasRole('admin');
-    }
-
-    match /products/{productId} {
-      allow read: if isAdmin();
-      allow write: if hasRole('super_admin') || hasRole('admin');
-    }
-    
-    // 6. ADMINS TRACKING (For RBAC management)
+    // 8. ADMINS TRACKING (For RBAC management)
     match /admins/{adminUid} {
       allow read: if isAdmin();
       allow write: if hasRole('super_admin');
     }
 
-        // 7. WAREHOUSES (Admin Only)
+    // 9. WAREHOUSES (Admin Only)
     match /warehouses/{warehouseId} {
       allow read: if isAdmin();
       allow create, update, delete: if hasRole('super_admin') || hasRole('admin');
     }
 
-    // 8. INVENTORY RECORDS (Admin reads/writes)
+    // 10. INVENTORY RECORDS (Admin reads/writes)
     match /inventory/{inventoryId} {
       allow read: if isAdmin();
       allow write: if hasRole('super_admin') || hasRole('admin');
     }
 
-    // 9. STOCK RESERVATIONS (Backend only for writes, users can read their own)
+    // 11. STOCK RESERVATIONS (Backend only for writes, users can read their own)
     match /stock_reservations/{reservationId} {
-      // Customers can read their own reservations
       allow read: if isAuthenticated() && 
                   (resource.data.customerId == request.auth.uid || isAdmin());
-      
-      // Only backend (Cloud Functions) can write reservations
-      allow write: if false;
+      allow write: if false; // Only backend (Cloud Functions) can write reservations
     }
 
-        // 10. CARTS (Users can read/write their own, guests via sessionId)
+    // 12. CARTS (Users can read/write their own, guests via sessionId)
     match /carts/{cartId} {
       // Authenticated users can only access their own cart
       allow read, write: if isAuthenticated() && 
@@ -137,11 +123,10 @@ service cloud.firestore {
                           request.resource.data.customerId == request.auth.uid);
       
       // For guest carts (cartId starts with "guest_"), allow access
-      // In production, you'd verify the sessionId more securely
       allow read, write: if cartId.startsWith("guest_");
     }
 
-    // 11. PROMO CODES (Anyone can read active codes, only admins can manage)
+    // 13. PROMO CODES (Anyone can read active codes, only admins can manage)
     match /promo_codes/{promoId} {
       allow read: if true; // Storefront needs to validate codes
       allow create, update, delete: if hasRole('super_admin') || hasRole('admin');

@@ -46,6 +46,9 @@ import {
   applyPromoCode,
   removePromoCode,
 } from "./queries/cart";
+import {
+  createOrder,
+} from "./queries/checkout";
 
 // Export all Cloud Functions
 export {
@@ -91,4 +94,6 @@ export {
   clearCart,
   applyPromoCode,
   removePromoCode,
+  // Checkout
+  createOrder,
 };
