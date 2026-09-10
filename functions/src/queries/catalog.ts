@@ -54,30 +54,62 @@ export const getFilteredOrders = onCall(async (request: CallableRequest) => {
 });
 
 // 2. FETCH FILTERED PRODUCTS (with cursor pagination)
+// 2. FETCH FILTERED PRODUCTS (with cursor pagination & prefix search)
 export const getFilteredProducts = onCall(async (request: CallableRequest) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Must be logged in.");
   }
 
-  const {filters, sortBy = "name", sortDirection = "asc", limit = 50, startAfterId} = request.data;
+  const { 
+    filters, 
+    searchQuery, 
+    sortBy = "name", 
+    sortDirection = "asc", 
+    limit = 50, 
+    startAfterId 
+  } = request.data;
 
   let query: any = db.collection("products");
 
-  // Apply filters
+  // 1. Apply Text Search (Prefix Matching)
+  // This finds documents where the name starts with the searchQuery string
+  if (searchQuery && typeof searchQuery === "string" && searchQuery.trim() !== "") {
+    const searchString = searchQuery.trim().toLowerCase();
+    const endString = searchString + "\uf8ff"; // Unicode character that sorts after all regular characters
+    
+    query = query
+      .where("name", ">=", searchString)
+      .where("name", "<=", endString);
+  }
+
+  // 2. Apply Filters
   if (filters?.category) {
-    query = query.where("category", "==", filters.category);
+    query = query.where("categoryId", "==", filters.category);
   }
   if (filters?.isActive !== undefined) {
     query = query.where("isActive", "==", filters.isActive);
   }
-  if (filters?.lowStock) {
-    query = query.where("currentStock", "<=", filters.lowStock);
+  if (filters?.isFeatured !== undefined) {
+    query = query.where("isFeatured", "==", filters.isFeatured);
+  }
+  if (filters?.lowStock !== undefined) {
+    // Note: Firestore only allows ONE range/inequality filter per query. 
+    // If searchQuery is used, this lowStock filter will cause an error. 
+    // We handle this by prioritizing search, or you can create a specific "low stock view" function.
+    if (!searchQuery) {
+      query = query.where("currentStock", "<=", filters.lowStock);
+    }
   }
 
-  // Apply sorting
-  query = query.orderBy(sortBy, sortDirection);
+  // 3. Apply Sorting
+  // Ensure the sort field is valid to prevent injection/errors
+  const validSortFields = ["name", "priceCents", "currentStock", "createdAt", "updatedAt"];
+  const finalSortBy = validSortFields.includes(sortBy) ? sortBy : "name";
+  const finalSortDir = sortDirection === "desc" ? "desc" : "asc";
+  
+  query = query.orderBy(finalSortBy, finalSortDir);
 
-  // Apply cursor pagination
+  // 4. Apply Cursor Pagination
   if (startAfterId) {
     const startAfterDoc = await db.collection("products").doc(startAfterId).get();
     if (startAfterDoc.exists) {
@@ -85,11 +117,11 @@ export const getFilteredProducts = onCall(async (request: CallableRequest) => {
     }
   }
 
-  // Limit results
+  // 5. Limit Results
   query = query.limit(limit);
 
   const snapshot = await query.get();
-
+  
   const products = snapshot.docs.map((doc: any) => ({
     id: doc.id,
     ...doc.data(),
@@ -98,7 +130,7 @@ export const getFilteredProducts = onCall(async (request: CallableRequest) => {
   const lastVisible = snapshot.docs[snapshot.docs.length - 1];
 
   return {
-    products,
+    products: products,
     lastDocId: lastVisible?.id || null,
     hasMore: snapshot.docs.length === limit,
   };

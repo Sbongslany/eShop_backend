@@ -31,6 +31,13 @@ import {
   updateCategory,
   deleteCategory,
 } from "./queries/products";
+import {
+  createWarehouse,
+  updateInventory,
+  reserveStock,
+  releaseStock,
+  confirmStockDeduction,
+} from "./queries/inventory";
 
 // Export all Cloud Functions
 export {
@@ -63,4 +70,10 @@ export {
   createCategory,
   updateCategory,
   deleteCategory,
+  // Inventory Management
+  createWarehouse,
+  updateInventory,
+  reserveStock,
+  releaseStock,
+  confirmStockDeduction,
 };

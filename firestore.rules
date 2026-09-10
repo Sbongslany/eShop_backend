@@ -107,6 +107,28 @@ service cloud.firestore {
       allow write: if hasRole('super_admin');
     }
 
+        // 7. WAREHOUSES (Admin Only)
+    match /warehouses/{warehouseId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if hasRole('super_admin') || hasRole('admin');
+    }
+
+    // 8. INVENTORY RECORDS (Admin reads/writes)
+    match /inventory/{inventoryId} {
+      allow read: if isAdmin();
+      allow write: if hasRole('super_admin') || hasRole('admin');
+    }
+
+    // 9. STOCK RESERVATIONS (Backend only for writes, users can read their own)
+    match /stock_reservations/{reservationId} {
+      // Customers can read their own reservations
+      allow read: if isAuthenticated() && 
+                  (resource.data.customerId == request.auth.uid || isAdmin());
+      
+      // Only backend (Cloud Functions) can write reservations
+      allow write: if false;
+    }
+
     // Deny access to everything else by default
     match /{document=**} {
       allow read, write: if false;
