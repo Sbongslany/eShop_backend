@@ -168,6 +168,24 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // 18. BANNERS (Anyone can read active banners, only admins can manage)
+    match /banners/{bannerId} {
+      allow read: if true; // Storefront needs to display banners
+      allow create, update, delete: if hasRole('super_admin') || hasRole('admin');
+    }
+
+    // 19. SITE SETTINGS (Anyone can read, only admins can update)
+    match /site_settings/{settingsId} {
+      allow read: if true; // Storefront needs global SEO and site info
+      allow write: if hasRole('super_admin') || hasRole('admin');
+    }
+
+    // 20. MERCHANDISING COLLECTIONS (Anyone can read, only admins can manage)
+    match /collections/{collectionId} {
+      allow read: if true; // Storefront needs to display collections
+      allow create, update, delete: if hasRole('super_admin') || hasRole('admin');
+    }
+
     // Deny access to everything else by default
     match /{document=**} {
       allow read, write: if false;

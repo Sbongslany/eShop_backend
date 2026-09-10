@@ -68,6 +68,15 @@ import {
   addTicketMessage,
   updateTicketStatus,
 } from "./queries/engagement";
+import {
+  createBanner,
+  updateBanner,
+  deleteBanner,
+  updateSiteSettings,
+  createCollection,
+  updateCollection,
+  deleteCollection,
+} from "./queries/content";
 
 // Export all Cloud Functions
 export {
@@ -133,4 +142,12 @@ export {
   createSupportTicket,
   addTicketMessage,
   updateTicketStatus,
+  // Content & Merchandising
+  createBanner,
+  updateBanner,
+  deleteBanner,
+  updateSiteSettings,
+  createCollection,
+  updateCollection,
+  deleteCollection,
 };
