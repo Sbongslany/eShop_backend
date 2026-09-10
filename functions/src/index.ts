@@ -90,6 +90,10 @@ import {
   updateBulkOperationStatus,
 } from "./queries/operations";
 import { initializePayment } from "./queries/payments";
+import {
+  getHomePageData,
+  getProductDetails,
+} from "./queries/storefront";
 
 // Export all Cloud Functions
 export {
@@ -177,4 +181,7 @@ export {
   updateBulkOperationStatus,
   // Payments
   initializePayment,
+  // Storefront Optimization
+  getHomePageData,
+  getProductDetails,
 };
