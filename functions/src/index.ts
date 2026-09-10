@@ -57,6 +57,17 @@ import {
   updatePromotion,
   evaluatePromotions,
 } from "./queries/promotions";
+import {
+  submitReview,
+  moderateReview,
+  updateReviewMetrics,
+  submitQuestion,
+  submitAnswer,
+  moderateQuestion,
+  createSupportTicket,
+  addTicketMessage,
+  updateTicketStatus,
+} from "./queries/engagement";
 
 // Export all Cloud Functions
 export {
@@ -112,4 +123,14 @@ export {
   createPromotion,
   updatePromotion,
   evaluatePromotions,
+  // Customer Engagement
+  submitReview,
+  moderateReview,
+  updateReviewMetrics,
+  submitQuestion,
+  submitAnswer,
+  moderateQuestion,
+  createSupportTicket,
+  addTicketMessage,
+  updateTicketStatus,
 };

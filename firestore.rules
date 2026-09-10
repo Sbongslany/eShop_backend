@@ -138,6 +138,36 @@ service cloud.firestore {
       allow create, update, delete: if hasRole('super_admin') || hasRole('admin');
     }
 
+    // 15. REVIEWS (Anyone can read approved reviews, authenticated users can create)
+    match /reviews/{reviewId} {
+      allow read: if true; // Storefront needs to display reviews
+      allow create: if isAuthenticated();
+      allow update: if isAdmin(); // Only admins can moderate
+      allow delete: if isAdmin();
+    }
+
+    // 16. PRODUCT QUESTIONS & ANSWERS
+    match /product_questions/{questionId} {
+      allow read: if true; // Storefront needs to display Q&A
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() || // Admins can moderate
+                    (isAuthenticated() && resource.data.customerId == request.auth.uid); // Customers can edit their own questions
+      allow delete: if isAdmin();
+    }
+
+    // 17. SUPPORT TICKETS
+    match /support_tickets/{ticketId} {
+      // Customers can read their own tickets, admins can read all
+      allow read: if isAuthenticated() && 
+                  (resource.data.customerId == request.auth.uid || isAdmin());
+      
+      // Customers can create tickets
+      allow create: if isAuthenticated();
+      
+      // Only admins/support can update tickets (change status, assign, etc.)
+      allow update, delete: if isAdmin();
+    }
+
     // Deny access to everything else by default
     match /{document=**} {
       allow read, write: if false;
