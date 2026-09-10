@@ -3,6 +3,9 @@ import {
   onProductStockUpdate,
   onOrderStatusUpdate,
 } from "./triggers/notifications";
+import { onOrderCompleted } from "./triggers/analytics";
+import { evaluateOrderRisk } from "./triggers/risk";
+import { paystackWebhook } from "./triggers/paystack";
 import {
   getFilteredOrders,
   getFilteredProducts,
@@ -77,6 +80,16 @@ import {
   updateCollection,
   deleteCollection,
 } from "./queries/content";
+import {
+  generateReport,
+  getReportStatus,
+} from "./queries/reports";
+import {
+  initiateBulkOperation,
+  getBulkOperations,
+  updateBulkOperationStatus,
+} from "./queries/operations";
+import { initializePayment } from "./queries/payments";
 
 // Export all Cloud Functions
 export {
@@ -85,6 +98,11 @@ export {
   // Product & Order Triggers
   onProductStockUpdate,
   onOrderStatusUpdate,
+  // Analytics & Risk Triggers
+  onOrderCompleted,
+  evaluateOrderRisk,
+  // Paystack Webhook
+  paystackWebhook,
   // Catalog Queries
   getFilteredOrders,
   getFilteredProducts,
@@ -150,4 +168,13 @@ export {
   createCollection,
   updateCollection,
   deleteCollection,
+  // Reporting & Analytics
+  generateReport,
+  getReportStatus,
+  // Risk & Bulk Operations
+  initiateBulkOperation,
+  getBulkOperations,
+  updateBulkOperationStatus,
+  // Payments
+  initializePayment,
 };

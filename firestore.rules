@@ -186,6 +186,47 @@ service cloud.firestore {
       allow create, update, delete: if hasRole('super_admin') || hasRole('admin');
     }
 
+    // 21. DAILY SALES SUMMARY (Admins read only, backend writes via trigger)
+    match /daily_sales_summary/{dateId} {
+      allow read: if isAdmin();
+      allow write: if false; // Only backend (Cloud Functions) can write
+    }
+
+    // 22. PRODUCT SALES METRICS (Admins read only, backend writes via trigger)
+    match /product_sales_metrics/{productId} {
+      allow read: if isAdmin();
+      allow write: if false; // Only backend (Cloud Functions) can write
+    }
+
+    // 23. CUSTOMER METRICS / LTV (Admins read only, backend writes via trigger)
+    match /customer_metrics/{customerId} {
+      allow read: if isAdmin() || isOwner(customerId); // Customers can read their own LTV
+      allow write: if false; // Only backend (Cloud Functions) can write
+    }
+
+    // 24. REPORT REQUESTS (Admins can read their own, backend writes)
+    match /report_requests/{reportId} {
+      allow read: if isAdmin() && 
+                  (resource.data.requestedByUid == request.auth.uid || isAdmin());
+      allow create: if isAdmin(); // Admins can request reports
+      allow update, delete: if false; // Only backend (Cloud Functions) can update status
+    }
+
+    // 25. BULK OPERATIONS (Admins can read/create, backend updates status)
+    match /bulk_operations/{operationId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin(); // Admins can initiate bulk ops
+      allow update: if isAdmin(); // Admins can manually override/retry status
+      allow delete: if false; // Never delete audit trail of ops
+    }
+
+        // 26. PAYMENTS (Admins can read all, customers can read their own, backend writes)
+    match /payments/{paymentId} {
+      allow read: if isAdmin() || 
+                  (isAuthenticated() && resource.data.customerId == request.auth.uid);
+      allow write: if false; // Only backend (Cloud Functions) can write
+    }
+
     // Deny access to everything else by default
     match /{document=**} {
       allow read, write: if false;
