@@ -67,27 +67,17 @@ service cloud.firestore {
 
     // 5. ORDERS (Granular Rules)
     match /orders/{orderId} {
-      // Anyone can create an order (handled securely via createOrder callable function)
       allow create: if request.resource.data.customerEmail != null;
-      
-      // Customers can read their own orders, admins can read all
       allow read: if isAuthenticated() && 
                   (resource.data.customerId == request.auth.uid || isAdmin());
-                  
-      // Only admins or backend (via webhooks/triggers) can update/delete orders
       allow update, delete: if isAdmin();
     }
 
     // 5a. RETURNS / RMA
     match /returns/{returnId} {
-      // Customers can read their own returns, admins can read all
       allow read: if isAuthenticated() && 
                   (resource.data.customerId == request.auth.uid || isAdmin());
-      
-      // Customers can create returns (handled securely via requestReturn callable function)
       allow create: if isAuthenticated();
-      
-      // Only admins can update or delete returns (via updateReturnStatus callable function)
       allow update, delete: if isAdmin();
     }
 
@@ -130,18 +120,21 @@ service cloud.firestore {
 
     // 12. CARTS (Users can read/write their own, guests via sessionId)
     match /carts/{cartId} {
-      // Authenticated users can only access their own cart
       allow read, write: if isAuthenticated() && 
                          (resource.data.customerId == request.auth.uid || 
                           request.resource.data.customerId == request.auth.uid);
-      
-      // For guest carts (cartId starts with "guest_"), allow access
       allow read, write: if cartId.startsWith("guest_");
     }
 
     // 13. PROMO CODES (Anyone can read active codes, only admins can manage)
     match /promo_codes/{promoId} {
       allow read: if true; // Storefront needs to validate codes
+      allow create, update, delete: if hasRole('super_admin') || hasRole('admin');
+    }
+
+    // 14. ADVANCED PROMOTIONS (Rule-based, scheduled campaigns)
+    match /promotions/{promotionId} {
+      allow read: if true; // Storefront needs to evaluate them
       allow create, update, delete: if hasRole('super_admin') || hasRole('admin');
     }
 

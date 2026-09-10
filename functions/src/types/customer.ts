@@ -7,6 +7,7 @@ export interface Customer {
   firstName: string;
   lastName: string;
   phone?: string;
+    segment?: "retail" | "wholesale" | "vip" | "new"; // <-- ADD THIS LINE
   createdAt: Timestamp;
   lastLogin: Timestamp;
   isGuest: boolean;

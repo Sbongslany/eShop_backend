@@ -52,6 +52,11 @@ import {
   updateReturnStatus,
   updateOrderStatus,
 } from "./queries/returns";
+import {
+  createPromotion,
+  updatePromotion,
+  evaluatePromotions,
+} from "./queries/promotions";
 
 // Export all Cloud Functions
 export {
@@ -103,4 +108,8 @@ export {
   requestReturn,
   updateReturnStatus,
   updateOrderStatus,
+  // Advanced Promotions
+  createPromotion,
+  updatePromotion,
+  evaluatePromotions,
 };

@@ -8,6 +8,7 @@ export interface CartItem {
   productId: string;
   variantId?: string; // Optional, if product has variants
   warehouseId: string; // Needed for stock reservation
+categoryId: string; // <-- ADD THIS LINE
   name: string; // Denormalized for quick cart rendering
   priceCents: number; // Price at the time of adding to cart
   quantity: number;
