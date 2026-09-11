@@ -1,5 +1,11 @@
 import { setAdminRole } from "./auth/setRole";
 import {
+  getDashboardSales,
+  getDashboardTopProducts,
+  getDashboardRecentOrders,
+  getDashboardRiskOrders
+} from "./queries/dashboard";
+import {
   onProductStockUpdate,
   onOrderStatusUpdate,
 } from "./triggers/notifications";
@@ -184,4 +190,10 @@ export {
   // Storefront Optimization
   getHomePageData,
   getProductDetails,
+
+  getDashboardSales,
+  getDashboardTopProducts,
+  getDashboardRecentOrders,
+  getDashboardRiskOrders
 };
+
