@@ -3,14 +3,29 @@ import { db } from "../config/admin";
 import { Timestamp, FieldValue } from "firebase-admin/firestore";
 import { logAudit } from "../utils/audit";
 
-// Helper to check admin role
-const verifyAdmin = (request: CallableRequest) => {
+// Helper to check admin role (Async with Firestore Fallback)
+const verifyAdmin = async (request: CallableRequest) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const role = request.auth.token.role;
-  if (role !== "super_admin" && role !== "admin" && role !== "support") {
-    throw new HttpsError("permission-denied", "Admin/Support access required.");
+  
+  const uid = request.auth.uid;
+  const email = request.auth.token.email || "";
+  const claimRole = request.auth.token.role as string;
+
+  // 1. Check Custom Claim first
+  if (claimRole === "super_admin" || claimRole === "admin" || claimRole === "support") {
+    return { uid, email, role: claimRole };
   }
-  return { uid: request.auth.uid, email: request.auth.token.email || "", role };
+
+  // 2. FALLBACK: Check Firestore document
+  const customerDoc = await db.collection("customers").doc(uid).get();
+  if (customerDoc.exists) {
+    const data = customerDoc.data();
+    if (data?.role === "super_admin" || data?.role === "admin" || data?.role === "support") {
+      return { uid, email, role: data.role };
+    }
+  }
+
+  throw new HttpsError("permission-denied", "Admin/Support access required.");
 };
 
 // Helper to generate Ticket Number
@@ -90,7 +105,7 @@ export const submitReview = onCall(async (request: CallableRequest) => {
 });
 
 export const moderateReview = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { reviewId, action } = request.data; // action: "approve" | "reject" | "flag"
 
   if (!reviewId || !["approve", "reject", "flag"].includes(action)) {
@@ -122,11 +137,48 @@ export const updateReviewMetrics = onCall(async (request: CallableRequest) => {
   const fieldToUpdate = action === "helpful" ? "helpfulCount" : "reportCount";
 
   await reviewRef.update({
-[fieldToUpdate]: FieldValue.increment(1),
+    [fieldToUpdate]: FieldValue.increment(1),
     updatedAt: Timestamp.now(),
   });
 
   return { success: true };
+});
+
+// ==========================================
+// 1b. ADMIN: GET ALL REVIEWS (for moderation)
+// ==========================================
+export const getAllReviews = onCall(async (request: CallableRequest) => {
+  await verifyAdmin(request);
+  const { productId, isApproved, isFlagged, limit = 50 } = request.data || {};
+
+  try {
+    let query: any = db.collection("reviews");
+
+    if (productId) query = query.where("productId", "==", productId);
+    if (isApproved !== undefined) query = query.where("isApproved", "==", isApproved);
+    if (isFlagged !== undefined) query = query.where("isFlagged", "==", isFlagged);
+
+    // Fetch without orderBy to avoid composite index requirement, then sort in-memory
+    const snapshot = await query.limit(limit).get();
+
+    const reviews = snapshot.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data(),
+    })).sort((a: any, b: any) => {
+      const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+      const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      return timeB - timeA;
+    });
+
+    return {
+      success: true,
+      reviews,
+      hasMore: snapshot.docs.length === limit,
+    };
+  } catch (error: any) {
+    console.error("Error fetching reviews:", error);
+    throw new HttpsError("internal", "Failed to fetch reviews.");
+  }
 });
 
 // ==========================================
@@ -169,7 +221,7 @@ export const submitAnswer = onCall(async (request: CallableRequest) => {
   const responderName = role === "admin" ? "Official Support" : (request.auth.token.name || "Anonymous");
 
   const newAnswer = {
-    id: db.collection("product_questions").doc().id, // Generate a unique ID for the answer
+    id: db.collection("product_questions").doc().id,
     responderId: request.auth.uid,
     responderName,
     responderRole: role,
@@ -179,14 +231,14 @@ export const submitAnswer = onCall(async (request: CallableRequest) => {
 
   const questionRef = db.collection("product_questions").doc(questionId);
   await questionRef.update({
-  answers: FieldValue.arrayUnion(newAnswer),
+    answers: FieldValue.arrayUnion(newAnswer),
   });
 
   return { success: true, message: "Answer submitted." };
 });
 
 export const moderateQuestion = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { questionId, action } = request.data; // action: "approve" | "feature" | "hide"
 
   if (!questionId || !["approve", "feature", "hide"].includes(action)) {
@@ -196,7 +248,7 @@ export const moderateQuestion = onCall(async (request: CallableRequest) => {
   const questionRef = db.collection("product_questions").doc(questionId);
   const updateData: any = { isApproved: action !== "hide" };
   if (action === "feature") updateData.isFeatured = true;
-  if (action === "approve") updateData.isFeatured = false; // Unfeature if just approving
+  if (action === "approve") updateData.isFeatured = false;
 
   await questionRef.update(updateData);
   await logAudit(admin.uid, admin.email, `QUESTION_${action.toUpperCase()}`, "product_questions", questionId, null, updateData);
@@ -248,7 +300,6 @@ export const createSupportTicket = onCall(async (request: CallableRequest) => {
 
   await db.collection("support_tickets").doc(ticketId).set(newTicket);
 
-  // Notify Support Admins
   await db.collection("notifications").add({
     type: "new_ticket",
     severity: priority === "urgent" || priority === "high" ? "warning" : "info",
@@ -277,7 +328,6 @@ export const addTicketMessage = onCall(async (request: CallableRequest) => {
 
   const ticketData = ticketDoc.data() as any;
   
-  // Verify ownership or admin status
   const isAdmin = request.auth.token.role === "admin" || request.auth.token.role === "support";
   if (!isAdmin && ticketData.customerId !== request.auth.uid) {
     throw new HttpsError("permission-denied", "You can only reply to your own tickets.");
@@ -296,7 +346,6 @@ export const addTicketMessage = onCall(async (request: CallableRequest) => {
     createdAt: Timestamp.now(),
   };
 
-  // If admin replies, change status to "waiting_on_customer" if it was "open"
   let newStatus = ticketData.status;
   if (isAdmin && ticketData.status === "open") {
     newStatus = "waiting_on_customer";
@@ -305,8 +354,8 @@ export const addTicketMessage = onCall(async (request: CallableRequest) => {
   }
 
   await ticketRef.update({
-messages: FieldValue.arrayUnion(newMessage),    
-status: newStatus,
+    messages: FieldValue.arrayUnion(newMessage),    
+    status: newStatus,
     updatedAt: Timestamp.now(),
   });
 
@@ -314,7 +363,7 @@ status: newStatus,
 });
 
 export const updateTicketStatus = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { ticketId, status, assignedToAdminUid } = request.data;
 
   if (!ticketId || !status) {
