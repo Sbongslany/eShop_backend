@@ -43,7 +43,8 @@ service cloud.firestore {
     match /customers/{customerId} {
       allow read: if isOwner(customerId) || isAdmin();
       allow update: if isOwner(customerId);
-      allow create: if false; // Only backend can create (via auth trigger)
+      // FIXED: Allow users to create their own customer document if the UID matches
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
       allow delete: if hasRole('super_admin');
 
       // 3a. ADDRESSES (Subcollection)
@@ -220,7 +221,7 @@ service cloud.firestore {
       allow delete: if false; // Never delete audit trail of ops
     }
 
-        // 26. PAYMENTS (Admins can read all, customers can read their own, backend writes)
+    // 26. PAYMENTS (Admins can read all, customers can read their own, backend writes)
     match /payments/{paymentId} {
       allow read: if isAdmin() || 
                   (isAuthenticated() && resource.data.customerId == request.auth.uid);

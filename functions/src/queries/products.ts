@@ -13,16 +13,32 @@ const generateSlug = (name: string): string => {
     .replace(/^-+|-+$/g, "");
 };
 
-// Check if user is admin
-const verifyAdmin = (request: CallableRequest) => {
+// Check if user is admin (Checks Custom Claims FIRST, then falls back to Firestore)
+const verifyAdmin = async (request: CallableRequest) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Must be logged in.");
   }
-  const role = request.auth.token.role;
-  if (role !== "super_admin" && role !== "admin") {
-    throw new HttpsError("permission-denied", "Admin access required.");
+  
+  const uid = request.auth.uid;
+  const email = request.auth.token.email || "";
+  const claimRole = request.auth.token.role as string;
+
+  // 1. Check Custom Claim first (most secure)
+  if (claimRole === "super_admin" || claimRole === "admin") {
+    return { uid, email, role: claimRole };
   }
-  return { uid: request.auth.uid, email: request.auth.token.email || "", role };
+
+  // 2. FALLBACK: Check Firestore document (allows Console editing)
+  const customerDoc = await db.collection("customers").doc(uid).get();
+  if (customerDoc.exists) {
+    const data = customerDoc.data();
+    if (data?.role === "super_admin" || data?.role === "admin") {
+      return { uid, email, role: data.role };
+    }
+  }
+
+  // If neither check passes, deny access
+  throw new HttpsError("permission-denied", "Admin access required.");
 };
 
 // ==========================================
@@ -30,7 +46,7 @@ const verifyAdmin = (request: CallableRequest) => {
 // ==========================================
 
 export const createProduct = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // <-- Added await
   const data = request.data;
 
   if (!data.name || !data.priceCents || !data.categoryId || !data.categoryName) {
@@ -74,7 +90,7 @@ export const createProduct = onCall(async (request: CallableRequest) => {
 });
 
 export const updateProduct = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // <-- Added await
   const { productId, ...updateData } = request.data;
 
   if (!productId) {
@@ -117,7 +133,7 @@ export const updateProduct = onCall(async (request: CallableRequest) => {
 });
 
 export const archiveProduct = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // <-- Added await
   const { productId } = request.data;
 
   if (!productId) {
@@ -158,7 +174,7 @@ export const archiveProduct = onCall(async (request: CallableRequest) => {
 // ==========================================
 
 export const createCategory = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // <-- Added await
   const data = request.data;
 
   if (!data.name) {
@@ -190,7 +206,7 @@ export const createCategory = onCall(async (request: CallableRequest) => {
 });
 
 export const updateCategory = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // <-- Added await
   const { categoryId, ...updateData } = request.data;
 
   if (!categoryId) {
@@ -227,7 +243,7 @@ export const updateCategory = onCall(async (request: CallableRequest) => {
 });
 
 export const deleteCategory = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // <-- Added await
   const { categoryId } = request.data;
 
   if (!categoryId) {
@@ -268,4 +284,30 @@ export const deleteCategory = onCall(async (request: CallableRequest) => {
   );
 
   return { success: true, message: "Category deleted." };
+});
+
+// ==========================================
+// GET ALL CATEGORIES (For dropdowns)
+// ==========================================
+export const getAllCategories = onCall(async (request: CallableRequest) => {
+  // Anyone can read categories (storefront needs them too)
+  
+  try {
+    const categoriesSnap = await db.collection("categories")
+      .orderBy("name", "asc")
+      .get();
+    
+    const categories = categoriesSnap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    return {
+      success: true,
+      categories
+    };
+  } catch (error: any) {
+    console.error("Error fetching categories:", error);
+    throw new HttpsError("internal", "Failed to fetch categories.");
+  }
 });

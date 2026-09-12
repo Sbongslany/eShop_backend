@@ -5,6 +5,7 @@ import {
   getDashboardRecentOrders,
   getDashboardRiskOrders
 } from "./queries/dashboard";
+import { getAllCategories } from "./queries/products";
 import {
   onProductStockUpdate,
   onOrderStatusUpdate,
@@ -194,6 +195,7 @@ export {
   getDashboardSales,
   getDashboardTopProducts,
   getDashboardRecentOrders,
-  getDashboardRiskOrders
+  getDashboardRiskOrders,
+  getAllCategories
 };
 
