@@ -88,7 +88,8 @@ import {
   createSupportTicket,
   addTicketMessage,
   updateTicketStatus,
-  getAllReviews, // <-- ADD THIS
+  getAllReviews,
+  getAllSupportTickets,
 } from "./queries/engagement";
 import {
   createBanner,
@@ -193,6 +194,7 @@ export {
   addTicketMessage,
   updateTicketStatus,
   getAllReviews,
+  getAllSupportTickets,
   // Content & Merchandising
   createBanner,
   updateBanner,

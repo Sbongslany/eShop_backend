@@ -384,3 +384,40 @@ export const updateTicketStatus = onCall(async (request: CallableRequest) => {
 
   return { success: true, message: "Ticket updated." };
 });
+
+// ==========================================
+// 4. ADMIN: GET ALL SUPPORT TICKETS
+// ==========================================
+export const getAllSupportTickets = onCall(async (request: CallableRequest) => {
+  await verifyAdmin(request);
+  const { status, limit = 50 } = request.data || {};
+
+  try {
+    let query: any = db.collection("support_tickets");
+
+    if (status && status !== "all") {
+      query = query.where("status", "==", status);
+    }
+
+    // Fetch without orderBy to avoid composite index requirement, then sort in-memory
+    const snapshot = await query.limit(limit).get();
+
+    const tickets = snapshot.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data(),
+    })).sort((a: any, b: any) => {
+      const timeA = a.updatedAt?.toMillis ? a.updatedAt.toMillis() : (a.createdAt?.toMillis ? a.createdAt.toMillis() : 0);
+      const timeB = b.updatedAt?.toMillis ? b.updatedAt.toMillis() : (b.createdAt?.toMillis ? b.createdAt.toMillis() : 0);
+      return timeB - timeA;
+    });
+
+    return {
+      success: true,
+      tickets,
+      hasMore: snapshot.docs.length === limit,
+    };
+  } catch (error: any) {
+    console.error("Error fetching support tickets:", error);
+    throw new HttpsError("internal", "Failed to fetch support tickets.");
+  }
+});
