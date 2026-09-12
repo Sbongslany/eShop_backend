@@ -5,6 +5,7 @@ import {
   getDashboardRecentOrders,
   getDashboardRiskOrders
 } from "./queries/dashboard";
+
 import { getAllCategories } from "./queries/products";
 import {
   onProductStockUpdate,
@@ -13,6 +14,7 @@ import {
 import { onOrderCompleted } from "./triggers/analytics";
 import { evaluateOrderRisk } from "./triggers/risk";
 import { paystackWebhook } from "./triggers/paystack";
+import { getOrderDetails } from "./queries/orders";
 import {
   getFilteredOrders,
   getFilteredProducts,
@@ -196,6 +198,7 @@ export {
   getDashboardTopProducts,
   getDashboardRecentOrders,
   getDashboardRiskOrders,
-  getAllCategories
+  getAllCategories,
+  getOrderDetails,
 };
 
