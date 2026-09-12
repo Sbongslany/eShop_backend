@@ -70,6 +70,8 @@ import {
   requestReturn,
   updateReturnStatus,
   updateOrderStatus,
+  getAllReturns,      // <-- ADD
+  getReturnDetails,   // <-- ADD
 } from "./queries/returns";
 import {
   createPromotion,
@@ -173,6 +175,8 @@ export {
   requestReturn,
   updateReturnStatus,
   updateOrderStatus,
+  getAllReturns,      // <-- ADD
+  getReturnDetails,   // <-- ADD
   // Advanced Promotions
   createPromotion,
   updatePromotion,

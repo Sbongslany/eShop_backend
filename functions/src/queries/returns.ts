@@ -3,14 +3,29 @@ import { db } from "../config/admin";
 import { Timestamp } from "firebase-admin/firestore";
 import { logAudit } from "../utils/audit";
 
-// Helper to check admin role
-const verifyAdmin = (request: CallableRequest) => {
+// Helper to check admin role (Async with Firestore Fallback)
+const verifyAdmin = async (request: CallableRequest) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const role = request.auth.token.role;
-  if (role !== "super_admin" && role !== "admin" && role !== "support") {
-    throw new HttpsError("permission-denied", "Admin access required.");
+  
+  const uid = request.auth.uid;
+  const email = request.auth.token.email || "";
+  const claimRole = request.auth.token.role as string;
+
+  // 1. Check Custom Claim first
+  if (claimRole === "super_admin" || claimRole === "admin" || claimRole === "support") {
+    return { uid, email, role: claimRole };
   }
-  return { uid: request.auth.uid, email: request.auth.token.email || "" };
+
+  // 2. FALLBACK: Check Firestore document
+  const customerDoc = await db.collection("customers").doc(uid).get();
+  if (customerDoc.exists) {
+    const data = customerDoc.data();
+    if (data?.role === "super_admin" || data?.role === "admin" || data?.role === "support") {
+      return { uid, email, role: data.role };
+    }
+  }
+
+  throw new HttpsError("permission-denied", "Admin access required.");
 };
 
 // Helper to generate RMA number
@@ -125,7 +140,7 @@ export const requestReturn = onCall(async (request: CallableRequest) => {
 // ==========================================
 
 export const updateReturnStatus = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { returnId, newStatus, adminNotes, restockingFeeCents, returnTrackingNumber } = request.data;
 
   if (!returnId || !newStatus) {
@@ -201,7 +216,7 @@ export const updateReturnStatus = onCall(async (request: CallableRequest) => {
 // ==========================================
 
 export const updateOrderStatus = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { orderId, newStatus, trackingNumber, notes } = request.data;
 
   if (!orderId || !newStatus) {
@@ -248,5 +263,88 @@ export const updateOrderStatus = onCall(async (request: CallableRequest) => {
   return { success: true, message: `Order status updated to ${newStatus}.` };
 });
 
-/// new admin
+// ==========================================
+// 4. ADMIN: GET ALL RETURNS (with filters)
+// ==========================================
+export const getAllReturns = onCall(async (request: CallableRequest) => {
+  await verifyAdmin(request);
+  const { status, limit = 50 } = request.data || {};
 
+  try {
+    let query: any = db.collection("returns");
+
+    if (status && status !== "all") {
+      query = query.where("status", "==", status);
+    }
+
+    // Fetch without orderBy to avoid composite index requirement, then sort in-memory
+    const snapshot = await query.limit(limit).get();
+
+    const returns = snapshot.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data(),
+    })).sort((a: any, b: any) => {
+      const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+      const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      return timeB - timeA;
+    });
+
+    return {
+      success: true,
+      returns,
+      hasMore: snapshot.docs.length === limit,
+    };
+  } catch (error: any) {
+    console.error("Error fetching returns:", error);
+    throw new HttpsError("internal", "Failed to fetch returns.");
+  }
+});
+
+// ==========================================
+// 5. ADMIN: GET RETURN DETAILS
+// ==========================================
+export const getReturnDetails = onCall(async (request: CallableRequest) => {
+  await verifyAdmin(request);
+  const { returnId } = request.data;
+
+  if (!returnId) {
+    throw new HttpsError("invalid-argument", "returnId is required.");
+  }
+
+  try {
+    const returnDoc = await db.collection("returns").doc(returnId).get();
+    if (!returnDoc.exists) {
+      throw new HttpsError("not-found", "Return not found.");
+    }
+const returnData = { id: returnDoc.id, ...returnDoc.data() } as any;
+
+    // Fetch the associated order for context
+    let order = null;
+    if (returnData.orderId) {
+      const orderDoc = await db.collection("orders").doc(returnData.orderId).get();
+      if (orderDoc.exists) {
+        order = { id: orderDoc.id, ...orderDoc.data() };
+      }
+    }
+
+    // Fetch customer info
+    let customer = null;
+    if (returnData.customerId) {
+      const customerDoc = await db.collection("customers").doc(returnData.customerId).get();
+      if (customerDoc.exists) {
+        customer = { id: customerDoc.id, ...customerDoc.data() };
+      }
+    }
+
+    return {
+      success: true,
+      return: returnData,
+      order,
+      customer,
+    };
+  } catch (error: any) {
+    console.error("Error fetching return details:", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", "Failed to fetch return details.");
+  }
+});
