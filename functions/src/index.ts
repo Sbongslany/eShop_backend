@@ -34,6 +34,13 @@ import {
   removeFromWishlist,
   getWishlist,
   getAllCustomers,
+
+  getCustomerDetails,
+  getCustomerOrders,
+  getCustomerReturns,
+  getCustomerReviews,
+  getCustomerTickets,
+  getCustomerWishlist,
 } from "./queries/customers";
 import {
   createProduct,
@@ -133,6 +140,13 @@ export {
   removeFromWishlist,
   getWishlist,
   getAllCustomers,
+
+  getCustomerDetails,
+  getCustomerOrders,
+  getCustomerReturns,
+  getCustomerReviews,
+  getCustomerTickets,
+  getCustomerWishlist,
   // Product & Category Management
   createProduct,
   updateProduct,
