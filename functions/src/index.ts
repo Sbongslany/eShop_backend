@@ -115,6 +115,8 @@ import {
 import {
   generateReport,
   getReportStatus,
+    getAllReports,    // <-- ADD
+  deleteReport,    // <-- ADD
 } from "./queries/reports";
 import {
   initiateBulkOperation,
@@ -225,6 +227,8 @@ export {
   // Reporting & Analytics
   generateReport,
   getReportStatus,
+  deleteReport, 
+  getAllReports,    // <-- ADD
   // Risk & Bulk Operations
   initiateBulkOperation,
   getBulkOperations,

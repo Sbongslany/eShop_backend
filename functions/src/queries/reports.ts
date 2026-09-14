@@ -1,26 +1,37 @@
 import { onCall, HttpsError, CallableRequest } from "firebase-functions/v2/https";
 import { db } from "../config/admin";
 import { Timestamp } from "firebase-admin/firestore";
-import * as admin from "firebase-admin"; // For Storage access
+import * as admin from "firebase-admin";
+import { logAudit } from "../utils/audit";
 
-// Helper to check admin role
-const verifyAdmin = (request: CallableRequest) => {
+const verifyAdmin = async (request: CallableRequest) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const role = request.auth.token.role;
-  if (role !== "super_admin" && role !== "admin") {
-    throw new HttpsError("permission-denied", "Admin access required.");
+  
+  const uid = request.auth.uid;
+  const email = request.auth.token.email || "";
+  const claimRole = request.auth.token.role as string;
+
+  if (claimRole === "super_admin" || claimRole === "admin" || claimRole === "support") {
+    return { uid, email, role: claimRole };
   }
-  return { uid: request.auth.uid, email: request.auth.token.email || "" };
+
+  const customerDoc = await db.collection("customers").doc(uid).get();
+  if (customerDoc.exists) {
+    const data = customerDoc.data();
+    if (data?.role === "super_admin" || data?.role === "admin" || data?.role === "support") {
+      return { uid, email, role: data.role };
+    }
+  }
+
+  throw new HttpsError("permission-denied", "Admin access required.");
 };
 
-// Helper to convert data to CSV string
 const convertToCSV = (data: any[], headers: string[]): string => {
   const headerRow = headers.join(",");
   const rows = data.map((row) => {
     return headers
       .map((header) => {
         const val = row[header] !== undefined ? row[header] : "";
-        // Escape commas and quotes in CSV values
         const escaped = String(val).replace(/"/g, '""');
         return `"${escaped}"`;
       })
@@ -30,7 +41,7 @@ const convertToCSV = (data: any[], headers: string[]): string => {
 };
 
 export const generateReport = onCall(async (request: CallableRequest) => {
-  const adminUser = verifyAdmin(request);
+  const adminUser = await verifyAdmin(request);
   const { reportType, startDate, endDate } = request.data;
 
   if (!reportType || !startDate || !endDate) {
@@ -41,7 +52,6 @@ export const generateReport = onCall(async (request: CallableRequest) => {
   const startTs = Timestamp.fromDate(new Date(startDate));
   const endTs = Timestamp.fromDate(new Date(endDate));
 
-  // 1. Create Pending Report Request
   await db.collection("report_requests").doc(reportId).set({
     id: reportId,
     requestedByUid: adminUser.uid,
@@ -57,7 +67,6 @@ export const generateReport = onCall(async (request: CallableRequest) => {
     let csvData: any[] = [];
     let headers: string[] = [];
 
-    // 2. Fetch Data Based on Report Type
     if (reportType === "sales_daily") {
       headers = ["date", "totalOrders", "totalRevenueCents", "netRevenueCents"];
       const snapshot = await db.collection("daily_sales_summary")
@@ -69,9 +78,9 @@ export const generateReport = onCall(async (request: CallableRequest) => {
       csvData = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
-          date: data.date.toDate().toISOString().split("T")[0],
+          date: data.date ? data.date.toDate().toISOString().split("T")[0] : "Unknown",
           totalOrders: data.totalOrders || 0,
-          totalRevenueCents: (data.totalRevenueCents || 0) / 100, // Convert to dollars
+          totalRevenueCents: (data.totalRevenueCents || 0) / 100,
           netRevenueCents: (data.netRevenueCents || 0) / 100,
         };
       });
@@ -80,7 +89,7 @@ export const generateReport = onCall(async (request: CallableRequest) => {
       headers = ["productName", "totalUnitsSold", "totalRevenueCents"];
       const snapshot = await db.collection("product_sales_metrics")
         .orderBy("totalUnitsSold", "desc")
-        .limit(100) // Top 100
+        .limit(100)
         .get();
       
       csvData = snapshot.docs.map(doc => {
@@ -112,36 +121,31 @@ export const generateReport = onCall(async (request: CallableRequest) => {
       throw new HttpsError("invalid-argument", "Unsupported report type.");
     }
 
-    // 3. Generate CSV
     const csvString = convertToCSV(csvData, headers);
     const fileName = `${reportType}_${startDate}_to_${endDate}.csv`;
     const filePath = `reports/${reportId}/${fileName}`;
 
-    // 4. Upload to Firebase Storage
     const bucket = admin.storage().bucket();
     const file = bucket.file(filePath);
     
-    await file.save(csvString, {
-      metadata: { contentType: "text/csv" },
-    });
+    await file.save(csvString, { metadata: { contentType: "text/csv" } });
 
-    // 5. Get Signed Download URL (valid for 7 days)
     const [url] = await file.getSignedUrl({
       action: "read",
       expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
     });
 
-    // 6. Mark Report as Completed
     await db.collection("report_requests").doc(reportId).update({
       status: "completed",
       downloadUrl: url,
+      filePath: filePath,
       completedAt: Timestamp.now(),
     });
 
     return { success: true, reportId, downloadUrl: url };
 
   } catch (error: any) {
-    console.error("Report generation failed:", error);
+    console.error("🔥 REPORT GENERATION FAILED:", error);
     
     await db.collection("report_requests").doc(reportId).update({
       status: "failed",
@@ -149,22 +153,54 @@ export const generateReport = onCall(async (request: CallableRequest) => {
       completedAt: Timestamp.now(),
     });
 
-    throw new HttpsError("internal", "Failed to generate report.");
+    // THIS IS THE CRUCIAL FIX: It now tells you EXACTLY why it failed
+    throw new HttpsError("internal", `Failed to generate report: ${error.message}`);
   }
 });
 
 export const getReportStatus = onCall(async (request: CallableRequest) => {
-    verifyAdmin(request);
+  await verifyAdmin(request);
   const { reportId } = request.data;
-
-  if (!reportId) {
-    throw new HttpsError("invalid-argument", "reportId is required.");
-  }
+  if (!reportId) throw new HttpsError("invalid-argument", "reportId is required.");
 
   const doc = await db.collection("report_requests").doc(reportId).get();
-  if (!doc.exists) {
-    throw new HttpsError("not-found", "Report request not found.");
-  }
+  if (!doc.exists) throw new HttpsError("not-found", "Report request not found.");
 
   return { report: { id: doc.id, ...doc.data() } };
+});
+
+export const getAllReports = onCall(async (request: CallableRequest) => {
+  await verifyAdmin(request);
+  try {
+    const snapshot = await db.collection("report_requests").orderBy("createdAt", "desc").limit(50).get();
+    const reports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return { success: true, reports };
+  } catch (error: any) {
+    console.error("Error fetching reports:", error);
+    throw new HttpsError("internal", "Failed to fetch reports.");
+  }
+});
+
+export const deleteReport = onCall(async (request: CallableRequest) => {
+  const adminUser = await verifyAdmin(request);
+  const { reportId } = request.data;
+  if (!reportId) throw new HttpsError("invalid-argument", "reportId is required.");
+
+  const docRef = db.collection("report_requests").doc(reportId);
+  const doc = await docRef.get();
+  if (!doc.exists) throw new HttpsError("not-found", "Report not found.");
+
+  const reportData = doc.data();
+  if (reportData?.filePath) {
+    try {
+      const bucket = admin.storage().bucket();
+      await bucket.file(reportData.filePath).delete();
+    } catch (err) {
+      console.warn("Could not delete file from storage:", err);
+    }
+  }
+
+  await docRef.delete();
+  await logAudit(adminUser.uid, adminUser.email, "DELETE", "report_requests", reportId, reportData, null);
+  return { success: true, message: "Report deleted." };
 });
