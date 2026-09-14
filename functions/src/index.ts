@@ -82,6 +82,9 @@ import {
   createPromotion,
   updatePromotion,
   evaluatePromotions,
+  getAllPromotions,
+  deletePromotion
+
 } from "./queries/promotions";
 import {
   submitReview,
@@ -234,6 +237,10 @@ export {
   getOrderDetails,
 
   getInventoryList, 
-  updateProductStock
+  updateProductStock,
+
+
+  getAllPromotions,
+  deletePromotion
 };
 

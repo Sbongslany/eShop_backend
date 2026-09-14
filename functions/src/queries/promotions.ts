@@ -3,22 +3,36 @@ import { db } from "../config/admin";
 import { Timestamp } from "firebase-admin/firestore";
 import { logAudit } from "../utils/audit";
 
-// Helper to check admin role
-const verifyAdmin = (request: CallableRequest) => {
+// Helper to check admin role (Async with Firestore Fallback)
+const verifyAdmin = async (request: CallableRequest) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const role = request.auth.token.role;
-  if (role !== "super_admin" && role !== "admin") {
-    throw new HttpsError("permission-denied", "Admin access required.");
+  
+  const uid = request.auth.uid;
+  const email = request.auth.token.email || "";
+  const claimRole = request.auth.token.role as string;
+
+  // 1. Check Custom Claim first
+  if (claimRole === "super_admin" || claimRole === "admin" || claimRole === "support") {
+    return { uid, email, role: claimRole };
   }
-  return { uid: request.auth.uid, email: request.auth.token.email || "" };
+
+  // 2. FALLBACK: Check Firestore document
+  const customerDoc = await db.collection("customers").doc(uid).get();
+  if (customerDoc.exists) {
+    const data = customerDoc.data();
+    if (data?.role === "super_admin" || data?.role === "admin" || data?.role === "support") {
+      return { uid, email, role: data.role };
+    }
+  }
+
+  throw new HttpsError("permission-denied", "Admin access required.");
 };
 
 // ==========================================
-// 1. ADMIN: CREATE/UPDATE PROMOTIONS
+// 1. ADMIN: CREATE PROMOTION
 // ==========================================
-
 export const createPromotion = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { name, description, type, value, conditions, schedule } = request.data;
 
   if (!name || !type || value === undefined || !conditions || !schedule) {
@@ -54,8 +68,11 @@ export const createPromotion = onCall(async (request: CallableRequest) => {
   return { success: true, promotionId: docRef.id };
 });
 
+// ==========================================
+// 2. ADMIN: UPDATE PROMOTION
+// ==========================================
 export const updatePromotion = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { promotionId, ...updateData } = request.data;
 
   if (!promotionId) {
@@ -83,11 +100,61 @@ export const updatePromotion = onCall(async (request: CallableRequest) => {
 });
 
 // ==========================================
-// 2. ENGINE: EVALUATE PROMOTIONS FOR A CART
+// 3. ADMIN: GET ALL PROMOTIONS
 // ==========================================
+export const getAllPromotions = onCall(async (request: CallableRequest) => {
+  await verifyAdmin(request);
 
+  try {
+    const snapshot = await db.collection("promotions").get();
+    
+    // Sort in memory to avoid composite index issues
+    const promotions = snapshot.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data(),
+    })).sort((a: any, b: any) => {
+      const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+      const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      return timeB - timeA;
+    });
+
+    return { success: true, promotions };
+  } catch (error: any) {
+    console.error("Error fetching promotions:", error);
+    throw new HttpsError("internal", "Failed to fetch promotions.");
+  }
+});
+
+// ==========================================
+// 4. ADMIN: DELETE PROMOTION
+// ==========================================
+export const deletePromotion = onCall(async (request: CallableRequest) => {
+  const admin = await verifyAdmin(request); // FIXED: Added await
+  const { promotionId } = request.data;
+
+  if (!promotionId) {
+    throw new HttpsError("invalid-argument", "promotionId is required.");
+  }
+
+  const docRef = db.collection("promotions").doc(promotionId);
+  const doc = await docRef.get();
+
+  if (!doc.exists) {
+    throw new HttpsError("not-found", "Promotion not found.");
+  }
+
+  const previousData = doc.data();
+  await docRef.delete();
+
+  await logAudit(admin.uid, admin.email, "DELETE", "promotions", promotionId, previousData, null);
+
+  return { success: true, message: "Promotion deleted." };
+});
+
+// ==========================================
+// 5. ENGINE: EVALUATE PROMOTIONS FOR A CART
+// ==========================================
 export const evaluatePromotions = onCall(async (request: CallableRequest) => {
-  // Can be called by guest or authenticated user
   const { cartItems, subtotalCents, customerSegment = "retail" } = request.data;
 
   if (!cartItems || !Array.isArray(cartItems) || subtotalCents === undefined) {
@@ -96,7 +163,6 @@ export const evaluatePromotions = onCall(async (request: CallableRequest) => {
 
   const now = Timestamp.now();
 
-  // 1. Fetch all active promotions within the current date range
   const promotionsSnapshot = await db.collection("promotions")
     .where("schedule.isActive", "==", true)
     .where("schedule.startDate", "<=", now)
@@ -107,30 +173,25 @@ export const evaluatePromotions = onCall(async (request: CallableRequest) => {
   let maxDiscountCents = 0;
   let bestPromotion = null;
 
-  // Extract category IDs from cart items for fast lookup
   const cartCategoryIds = new Set(cartItems.map((item: any) => item.categoryId).filter(Boolean));
 
   for (const promoDoc of promotionsSnapshot.docs) {
     const promo = promoDoc.data() as any;
 
-    // 2. Check Customer Segment
     if (!promo.conditions.targetCustomerSegments.includes("all") && 
         !promo.conditions.targetCustomerSegments.includes(customerSegment)) {
       continue;
     }
 
-    // 3. Check Min Subtotal
     if (subtotalCents < promo.conditions.minSubtotalCents) {
       continue;
     }
 
-    // 4. Check Excluded Categories
     const hasExcluded = promo.conditions.excludedCategoryIds.some((catId: string) => cartCategoryIds.has(catId));
     if (hasExcluded) {
       continue;
     }
 
-    // 5. Check Required Categories (if any are specified)
     if (promo.conditions.requiredCategoryIds.length > 0) {
       const hasRequired = promo.conditions.requiredCategoryIds.some((catId: string) => cartCategoryIds.has(catId));
       if (!hasRequired) {
@@ -138,22 +199,17 @@ export const evaluatePromotions = onCall(async (request: CallableRequest) => {
       }
     }
 
-    // 6. Calculate Discount
     let discountCents = 0;
     if (promo.type === "percentage_discount") {
       discountCents = Math.floor(subtotalCents * (promo.value / 100));
     } else if (promo.type === "fixed_discount") {
       discountCents = promo.value;
     } else if (promo.type === "free_shipping") {
-      discountCents = 0; // Handled in shipping calculation
+      discountCents = 0; 
     } else if (promo.type === "bogo") {
-      // Simplified BOGO: 50% off the cheapest item (or full price of 1 if value=100)
-      // For this phase, we'll treat BOGO as a percentage discount on the subtotal for simplicity, 
-      // or you can expand this logic to find the cheapest item.
       discountCents = Math.floor(subtotalCents * (promo.value / 100)); 
     }
 
-    // Cap discount at subtotal
     discountCents = Math.min(discountCents, subtotalCents);
 
     applicablePromotions.push({
