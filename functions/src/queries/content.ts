@@ -3,14 +3,27 @@ import { db } from "../config/admin";
 import { Timestamp } from "firebase-admin/firestore";
 import { logAudit } from "../utils/audit";
 
-// Helper to check admin role
-const verifyAdmin = (request: CallableRequest) => {
+// Helper to check admin role (Async with Firestore Fallback)
+const verifyAdmin = async (request: CallableRequest) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const role = request.auth.token.role;
-  if (role !== "super_admin" && role !== "admin") {
-    throw new HttpsError("permission-denied", "Admin access required.");
+  
+  const uid = request.auth.uid;
+  const email = request.auth.token.email || "";
+  const claimRole = request.auth.token.role as string;
+
+  if (claimRole === "super_admin" || claimRole === "admin" || claimRole === "support") {
+    return { uid, email, role: claimRole };
   }
-  return { uid: request.auth.uid, email: request.auth.token.email || "" };
+
+  const customerDoc = await db.collection("customers").doc(uid).get();
+  if (customerDoc.exists) {
+    const data = customerDoc.data();
+    if (data?.role === "super_admin" || data?.role === "admin" || data?.role === "support") {
+      return { uid, email, role: data.role };
+    }
+  }
+
+  throw new HttpsError("permission-denied", "Admin access required.");
 };
 
 // Helper to generate URL-friendly slugs
@@ -28,7 +41,7 @@ const generateSlug = (name: string): string => {
 // ==========================================
 
 export const createBanner = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { title, imageUrl, linkUrl, altText, order, startDate, endDate } = request.data;
 
   if (!title || !imageUrl || !altText) {
@@ -55,27 +68,18 @@ export const createBanner = onCall(async (request: CallableRequest) => {
 });
 
 export const updateBanner = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { bannerId, ...updateData } = request.data;
 
-  if (!bannerId) {
-    throw new HttpsError("invalid-argument", "bannerId is required.");
-  }
+  if (!bannerId) throw new HttpsError("invalid-argument", "bannerId is required.");
 
   const docRef = db.collection("banners").doc(bannerId);
   const doc = await docRef.get();
-
-  if (!doc.exists) {
-    throw new HttpsError("not-found", "Banner not found.");
-  }
+  if (!doc.exists) throw new HttpsError("not-found", "Banner not found.");
 
   const previousData = doc.data();
-  const newData = {
-    ...updateData,
-    updatedAt: Timestamp.now(),
-  };
+  const newData = { ...updateData, updatedAt: Timestamp.now() };
 
-  // Handle date conversions if provided
   if (updateData.startDate) newData.startDate = Timestamp.fromDate(new Date(updateData.startDate));
   if (updateData.endDate) newData.endDate = Timestamp.fromDate(new Date(updateData.endDate));
 
@@ -86,19 +90,14 @@ export const updateBanner = onCall(async (request: CallableRequest) => {
 });
 
 export const deleteBanner = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { bannerId } = request.data;
 
-  if (!bannerId) {
-    throw new HttpsError("invalid-argument", "bannerId is required.");
-  }
+  if (!bannerId) throw new HttpsError("invalid-argument", "bannerId is required.");
 
   const docRef = db.collection("banners").doc(bannerId);
   const doc = await docRef.get();
-
-  if (!doc.exists) {
-    throw new HttpsError("not-found", "Banner not found.");
-  }
+  if (!doc.exists) throw new HttpsError("not-found", "Banner not found.");
 
   const previousData = doc.data();
   await docRef.delete();
@@ -107,19 +106,30 @@ export const deleteBanner = onCall(async (request: CallableRequest) => {
   return { success: true, message: "Banner deleted." };
 });
 
+export const getAllBanners = onCall(async (request: CallableRequest) => {
+  await verifyAdmin(request);
+  try {
+    const snapshot = await db.collection("banners").orderBy("order", "asc").get();
+    const banners = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+    return { success: true, banners };
+  } catch (error: any) {
+    console.error("Error fetching banners:", error);
+    throw new HttpsError("internal", "Failed to fetch banners.");
+  }
+});
+
 // ==========================================
 // 2. SITE SETTINGS & GLOBAL SEO
 // ==========================================
 
 export const updateSiteSettings = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { siteName, defaultSeoTitle, defaultSeoDescription, faviconUrl, ogImageUrl, twitterHandle, supportEmail, footerText } = request.data;
 
   if (!siteName || !supportEmail) {
     throw new HttpsError("invalid-argument", "siteName and supportEmail are required.");
   }
 
-  // We use a single document with ID "global" for site settings
   const docRef = db.collection("site_settings").doc("global");
   const doc = await docRef.get();
   const previousData = doc.exists ? doc.data() : null;
@@ -142,17 +152,26 @@ export const updateSiteSettings = onCall(async (request: CallableRequest) => {
   return { success: true, message: "Site settings updated." };
 });
 
+export const getSiteSettings = onCall(async (request: CallableRequest) => {
+  await verifyAdmin(request);
+  try {
+    const doc = await db.collection("site_settings").doc("global").get();
+    return { success: true, settings: doc.exists ? { id: doc.id, ...doc.data() } : null };
+  } catch (error: any) {
+    console.error("Error fetching site settings:", error);
+    throw new HttpsError("internal", "Failed to fetch site settings.");
+  }
+});
+
 // ==========================================
 // 3. MERCHANDISING COLLECTIONS
 // ==========================================
 
 export const createCollection = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { name, description, seoTitle, seoDescription, ogImageUrl, productIds, sortOrder } = request.data;
 
-  if (!name) {
-    throw new HttpsError("invalid-argument", "Collection name is required.");
-  }
+  if (!name) throw new HttpsError("invalid-argument", "Collection name is required.");
 
   const newCollection = {
     name,
@@ -175,27 +194,18 @@ export const createCollection = onCall(async (request: CallableRequest) => {
 });
 
 export const updateCollection = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { collectionId, ...updateData } = request.data;
 
-  if (!collectionId) {
-    throw new HttpsError("invalid-argument", "collectionId is required.");
-  }
+  if (!collectionId) throw new HttpsError("invalid-argument", "collectionId is required.");
 
   const docRef = db.collection("collections").doc(collectionId);
   const doc = await docRef.get();
-
-  if (!doc.exists) {
-    throw new HttpsError("not-found", "Collection not found.");
-  }
+  if (!doc.exists) throw new HttpsError("not-found", "Collection not found.");
 
   const previousData = doc.data();
-  const newData = {
-    ...updateData,
-    updatedAt: Timestamp.now(),
-  };
+  const newData = { ...updateData, updatedAt: Timestamp.now() };
 
-  // If name changes, update slug (unless slug is explicitly provided)
   if (updateData.name && !updateData.slug) {
     newData.slug = generateSlug(updateData.name);
   }
@@ -207,23 +217,30 @@ export const updateCollection = onCall(async (request: CallableRequest) => {
 });
 
 export const deleteCollection = onCall(async (request: CallableRequest) => {
-  const admin = verifyAdmin(request);
+  const admin = await verifyAdmin(request); // FIXED: Added await
   const { collectionId } = request.data;
 
-  if (!collectionId) {
-    throw new HttpsError("invalid-argument", "collectionId is required.");
-  }
+  if (!collectionId) throw new HttpsError("invalid-argument", "collectionId is required.");
 
   const docRef = db.collection("collections").doc(collectionId);
   const doc = await docRef.get();
-
-  if (!doc.exists) {
-    throw new HttpsError("not-found", "Collection not found.");
-  }
+  if (!doc.exists) throw new HttpsError("not-found", "Collection not found.");
 
   const previousData = doc.data();
   await docRef.delete();
   await logAudit(admin.uid, admin.email, "DELETE", "collections", collectionId, previousData, null);
 
   return { success: true, message: "Collection deleted." };
+});
+
+export const getAllCollections = onCall(async (request: CallableRequest) => {
+  await verifyAdmin(request);
+  try {
+    const snapshot = await db.collection("collections").get();
+    const collections = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+    return { success: true, collections };
+  } catch (error: any) {
+    console.error("Error fetching collections:", error);
+    throw new HttpsError("internal", "Failed to fetch collections.");
+  }
 });

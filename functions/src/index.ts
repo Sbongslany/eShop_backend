@@ -99,14 +99,18 @@ import {
   getAllReviews,
   getAllSupportTickets,
 } from "./queries/engagement";
+
 import {
   createBanner,
   updateBanner,
   deleteBanner,
+  getAllBanners,
+  getSiteSettings,
   updateSiteSettings,
   createCollection,
   updateCollection,
   deleteCollection,
+  getAllCollections
 } from "./queries/content";
 import {
   generateReport,
@@ -215,6 +219,9 @@ export {
   createCollection,
   updateCollection,
   deleteCollection,
+  getAllBanners,
+  getSiteSettings,
+  getAllCollections,
   // Reporting & Analytics
   generateReport,
   getReportStatus,
