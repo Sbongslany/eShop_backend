@@ -1,12 +1,13 @@
 import { setAdminRole } from "./auth/setRole";
 import {
+  getDashboardStats,
   getDashboardSales,
   getDashboardTopProducts,
   getDashboardRecentOrders,
   getDashboardRiskOrders
 } from "./queries/dashboard";
 
-import { getAllCategories } from "./queries/products";
+import { getAllCategories, getInventoryList, updateProductStock } from "./queries/products";
 import {
   onProductStockUpdate,
   onOrderStatusUpdate,
@@ -56,6 +57,10 @@ import {
   reserveStock,
   releaseStock,
   confirmStockDeduction,
+  getAllWarehouses,      // <-- ADD
+  getWarehouseDetails,   // <-- ADD
+  getLowStockAlerts,     // <-- ADD\
+  backfillInventoryRecords,
 } from "./queries/inventory";
 import {
   getCart,
@@ -164,6 +169,10 @@ export {
   reserveStock,
   releaseStock,
   confirmStockDeduction,
+  getAllWarehouses,      // <-- ADD
+  getWarehouseDetails,   // <-- ADD
+  getLowStockAlerts,     // <-- ADD
+  backfillInventoryRecords,
   // Cart & Promo Management
   getCart,
   addToCart,
@@ -216,11 +225,15 @@ export {
   getHomePageData,
   getProductDetails,
 
+  getDashboardStats,
   getDashboardSales,
   getDashboardTopProducts,
   getDashboardRecentOrders,
   getDashboardRiskOrders,
   getAllCategories,
   getOrderDetails,
+
+  getInventoryList, 
+  updateProductStock
 };
 

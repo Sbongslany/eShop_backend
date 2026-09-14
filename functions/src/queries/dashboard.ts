@@ -29,6 +29,42 @@ const verifyAdmin = async (request: CallableRequest) => {
 };
 
 // ==========================================
+// 0. GET DASHBOARD STATS (Active Products, Low Stock, Total Orders)
+// ==========================================
+export const getDashboardStats = onCall(async (request: CallableRequest) => {
+  await verifyAdmin(request);
+
+  try {
+    // 1. Count Active Products & Low Stock directly from products collection
+    const productsSnap = await db.collection("products").where("isActive", "==", true).get();
+    const activeProducts = productsSnap.size;
+    
+    let lowStockAlerts = 0;
+    productsSnap.docs.forEach((doc: any) => {
+      const data = doc.data();
+      const currentStock = data.currentStock || 0;
+      const threshold = data.lowStockThreshold || 5;
+      
+      if (currentStock <= threshold) {
+        lowStockAlerts++;
+      }
+    });
+
+    // 2. Count Total Orders
+    const ordersSnap = await db.collection("orders").select("id").get();
+    const totalOrders = ordersSnap.size;
+
+    return {
+      success: true,
+      stats: { activeProducts, lowStockAlerts, totalOrders }
+    };
+  } catch (error: any) {
+    console.error("Error fetching dashboard stats:", error);
+    throw new HttpsError("internal", "Failed to fetch dashboard stats.");
+  }
+});
+
+// ==========================================
 // 1. GET DASHBOARD SALES DATA (Last N days)
 // ==========================================
 export const getDashboardSales = onCall(async (request: CallableRequest) => {
@@ -152,7 +188,6 @@ export const getDashboardRiskOrders = onCall(async (request: CallableRequest) =>
       orders: riskOrders
     };
   } catch (error: any) {
-    // Log the EXACT Firestore error so we can see what's wrong
     console.error("🔥 ERROR fetching risk orders:", error.message, error.details);
     throw new HttpsError("internal", `Failed to fetch risk orders: ${error.message}`);
   }

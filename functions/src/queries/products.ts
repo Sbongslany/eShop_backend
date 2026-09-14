@@ -37,7 +37,6 @@ const verifyAdmin = async (request: CallableRequest) => {
     }
   }
 
-  // If neither check passes, deny access
   throw new HttpsError("permission-denied", "Admin access required.");
 };
 
@@ -46,7 +45,7 @@ const verifyAdmin = async (request: CallableRequest) => {
 // ==========================================
 
 export const createProduct = onCall(async (request: CallableRequest) => {
-  const admin = await verifyAdmin(request); // <-- Added await
+  const admin = await verifyAdmin(request);
   const data = request.data;
 
   if (!data.name || !data.priceCents || !data.categoryId || !data.categoryName) {
@@ -75,22 +74,56 @@ export const createProduct = onCall(async (request: CallableRequest) => {
   };
 
   const docRef = await db.collection("products").add(newProduct);
+  const productId = docRef.id;
+
+  // ==========================================
+  // AUTO-CREATE INVENTORY RECORDS FOR ALL WAREHOUSES
+  // ==========================================
+  try {
+    const warehousesSnap = await db.collection("warehouses")
+      .where("isActive", "==", true)
+      .get();
+
+    const inventoryPromises = warehousesSnap.docs.map(async (warehouseDoc) => {
+      const warehouseId = warehouseDoc.id;
+      const invId = `${productId}_${warehouseId}`;
+      const invRef = db.collection("inventory").doc(invId);
+
+      await invRef.set({
+        productId: productId,
+        warehouseId: warehouseId,
+        quantityOnHand: 0,
+        quantityReserved: 0,
+        quantityAvailable: 0,
+        lowStockThreshold: Number(data.lowStockThreshold || 5),
+        allowBackorder: false,
+        updatedAt: Timestamp.now(),
+      });
+    });
+
+    await Promise.all(inventoryPromises);
+    console.log(`Created ${warehousesSnap.size} inventory records for product ${productId}`);
+  } catch (error: any) {
+    console.error("Error creating inventory records:", error);
+    // Don't fail the product creation if inventory creation fails
+    // Just log the error and continue
+  }
 
   await logAudit(
     admin.uid,
     admin.email,
     "CREATE",
     "products",
-    docRef.id,
+    productId,
     null,
     newProduct
   );
 
-  return { success: true, productId: docRef.id };
+  return { success: true, productId: productId };
 });
 
 export const updateProduct = onCall(async (request: CallableRequest) => {
-  const admin = await verifyAdmin(request); // <-- Added await
+  const admin = await verifyAdmin(request);
   const { productId, ...updateData } = request.data;
 
   if (!productId) {
@@ -106,18 +139,37 @@ export const updateProduct = onCall(async (request: CallableRequest) => {
 
   const previousData = doc.data();
   
-  // Ensure updatedAt is always refreshed
   const newData = {
     ...updateData,
     updatedAt: Timestamp.now(),
   };
 
-  // If name changes, update slug (unless slug is explicitly provided)
   if (updateData.name && !updateData.slug) {
     newData.slug = generateSlug(updateData.name);
   }
 
   await docRef.update(newData);
+
+  // If lowStockThreshold changed, update all inventory records for this product
+  if (updateData.lowStockThreshold !== undefined) {
+    try {
+      const inventorySnap = await db.collection("inventory")
+        .where("productId", "==", productId)
+        .get();
+
+      const updatePromises = inventorySnap.docs.map((invDoc) => {
+        return invDoc.ref.update({
+          lowStockThreshold: Number(updateData.lowStockThreshold),
+          updatedAt: Timestamp.now(),
+        });
+      });
+
+      await Promise.all(updatePromises);
+      console.log(`Updated lowStockThreshold for ${inventorySnap.size} inventory records`);
+    } catch (error: any) {
+      console.error("Error updating inventory thresholds:", error);
+    }
+  }
 
   await logAudit(
     admin.uid,
@@ -133,7 +185,7 @@ export const updateProduct = onCall(async (request: CallableRequest) => {
 });
 
 export const archiveProduct = onCall(async (request: CallableRequest) => {
-  const admin = await verifyAdmin(request); // <-- Added await
+  const admin = await verifyAdmin(request);
   const { productId } = request.data;
 
   if (!productId) {
@@ -149,8 +201,6 @@ export const archiveProduct = onCall(async (request: CallableRequest) => {
 
   const previousData = doc.data();
 
-  // Soft delete: set isActive to false instead of hard deleting
-  // This preserves order history and analytics
   await docRef.update({
     isActive: false,
     updatedAt: Timestamp.now(),
@@ -174,7 +224,7 @@ export const archiveProduct = onCall(async (request: CallableRequest) => {
 // ==========================================
 
 export const createCategory = onCall(async (request: CallableRequest) => {
-  const admin = await verifyAdmin(request); // <-- Added await
+  const admin = await verifyAdmin(request);
   const data = request.data;
 
   if (!data.name) {
@@ -206,7 +256,7 @@ export const createCategory = onCall(async (request: CallableRequest) => {
 });
 
 export const updateCategory = onCall(async (request: CallableRequest) => {
-  const admin = await verifyAdmin(request); // <-- Added await
+  const admin = await verifyAdmin(request);
   const { categoryId, ...updateData } = request.data;
 
   if (!categoryId) {
@@ -243,7 +293,7 @@ export const updateCategory = onCall(async (request: CallableRequest) => {
 });
 
 export const deleteCategory = onCall(async (request: CallableRequest) => {
-  const admin = await verifyAdmin(request); // <-- Added await
+  const admin = await verifyAdmin(request);
   const { categoryId } = request.data;
 
   if (!categoryId) {
@@ -257,7 +307,6 @@ export const deleteCategory = onCall(async (request: CallableRequest) => {
     throw new HttpsError("not-found", "Category not found.");
   }
 
-  // Check if category has products (optional but recommended)
   const productsSnapshot = await db.collection("products")
     .where("categoryId", "==", categoryId)
     .limit(1)
@@ -290,8 +339,6 @@ export const deleteCategory = onCall(async (request: CallableRequest) => {
 // GET ALL CATEGORIES (For dropdowns)
 // ==========================================
 export const getAllCategories = onCall(async (request: CallableRequest) => {
-  // Anyone can read categories (storefront needs them too)
-  
   try {
     const categoriesSnap = await db.collection("categories")
       .orderBy("name", "asc")
@@ -310,4 +357,42 @@ export const getAllCategories = onCall(async (request: CallableRequest) => {
     console.error("Error fetching categories:", error);
     throw new HttpsError("internal", "Failed to fetch categories.");
   }
+});
+
+// ==========================================
+// INVENTORY MANAGEMENT (Directly on Products)
+// ==========================================
+
+export const getInventoryList = onCall(async (request: CallableRequest) => {
+  await verifyAdmin(request);
+  try {
+    const snapshot = await db.collection("products").where("isActive", "==", true).get();
+    const products = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    return { success: true, products };
+  } catch (error: any) {
+    console.error("Error fetching inventory list:", error);
+    throw new HttpsError("internal", "Failed to fetch inventory list.");
+  }
+});
+
+export const updateProductStock = onCall(async (request: CallableRequest) => {
+  await verifyAdmin(request);
+  const { productId, currentStock, lowStockThreshold } = request.data;
+  
+  if (!productId || currentStock === undefined) {
+    throw new HttpsError("invalid-argument", "productId and currentStock are required.");
+  }
+
+  const docRef = db.collection("products").doc(productId);
+  const updateData = {
+    currentStock: Number(currentStock),
+    lowStockThreshold: Number(lowStockThreshold || 5),
+    updatedAt: Timestamp.now(),
+  };
+
+  await docRef.update(updateData);
+  return { success: true, message: "Stock updated." };
 });
