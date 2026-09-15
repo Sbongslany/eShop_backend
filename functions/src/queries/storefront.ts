@@ -111,3 +111,66 @@ export const getProductDetails = onCall(async (request: CallableRequest) => {
     inventory,
   };
 });
+
+
+// ==========================================
+// PUBLIC STOREFRONT FUNCTIONS (No Auth Required)
+// ==========================================
+
+export const getPublicBanners = onCall(async (request: CallableRequest) => {
+  try {
+    // Fetch without orderBy to avoid composite index requirements
+    const snapshot = await db.collection("banners")
+      .where("isActive", "==", true)
+      .get();
+    
+    const banners = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+    
+    // Sort in memory by order
+    banners.sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+    
+    return { success: true, banners };
+  } catch (error: any) {
+    console.error("🔥 Error fetching public banners:", error);
+    throw new HttpsError("internal", `Failed to fetch banners: ${error.message}`);
+  }
+});
+
+export const getPublicCategories = onCall(async (request: CallableRequest) => {
+  try {
+    // Fetch without orderBy to avoid composite index requirements
+    const snapshot = await db.collection("categories")
+      .where("isActive", "==", true)
+      .get();
+    
+    const categories = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+    
+    // Sort in memory by name
+    categories.sort((a: any, b: any) => a.name.localeCompare(b.name));
+    
+    return { success: true, categories };
+  } catch (error: any) {
+    console.error("🔥 Error fetching public categories:", error);
+    throw new HttpsError("internal", `Failed to fetch categories: ${error.message}`);
+  }
+});
+
+export const getPublicProducts = onCall(async (request: CallableRequest) => {
+  try {
+    const { limit = 20, isFeatured = false } = request.data || {};
+    
+    let query: any = db.collection("products").where("isActive", "==", true);
+    
+    if (isFeatured) {
+      query = query.where("isFeatured", "==", true);
+    }
+    
+    const snapshot = await query.limit(limit).get();
+    const products = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+    
+    return { success: true, products };
+  } catch (error: any) {
+    console.error("🔥 Error fetching public products:", error);
+    throw new HttpsError("internal", `Failed to fetch products: ${error.message}`);
+  }
+});

@@ -127,6 +127,9 @@ import { initializePayment } from "./queries/payments";
 import {
   getHomePageData,
   getProductDetails,
+  getPublicBanners,       // <-- ADD
+  getPublicCategories,    // <-- ADD
+  getPublicProducts,      // <-- ADD
 } from "./queries/storefront";
 
 // Export all Cloud Functions
@@ -238,6 +241,9 @@ export {
   // Storefront Optimization
   getHomePageData,
   getProductDetails,
+  getPublicBanners,       // <-- ADD
+  getPublicCategories,    // <-- ADD
+  getPublicProducts,      // <-- ADD
 
   getDashboardStats,
   getDashboardSales,
