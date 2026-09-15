@@ -157,18 +157,81 @@ export const getPublicCategories = onCall(async (request: CallableRequest) => {
 
 export const getPublicProducts = onCall(async (request: CallableRequest) => {
   try {
-    const { limit = 20, isFeatured = false } = request.data || {};
+    const { 
+      limit = 50, 
+      isFeatured = false,
+      categoryId,
+      categorySlug,
+      minPriceCents,
+      maxPriceCents,
+      inStockOnly,
+      sortBy = "createdAt",
+      sortDirection = "desc"
+    } = request.data || {};
     
-    let query: any = db.collection("products").where("isActive", "==", true);
+    // 1. Fetch ONLY active products from Firestore (No complex indexes needed)
+    const snapshot = await db.collection("products")
+      .where("isActive", "==", true)
+      .get();
     
-    if (isFeatured) {
-      query = query.where("isFeatured", "==", true);
+    let products = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+
+    // 2. Filter by Category Slug (if provided)
+    if (categorySlug) {
+      const categorySnap = await db.collection("categories")
+        .where("slug", "==", categorySlug)
+        .limit(1)
+        .get();
+      
+      if (!categorySnap.empty) {
+        const targetCategoryId = categorySnap.docs[0].id;
+        products = products.filter((p: any) => p.categoryId === targetCategoryId);
+      } else {
+        products = []; // Category doesn't exist
+      }
     }
+
+    // 3. Apply In-Memory Filters
+    if (categoryId) {
+      products = products.filter((p: any) => p.categoryId === categoryId);
+    }
+    if (isFeatured) {
+      products = products.filter((p: any) => p.isFeatured === true);
+    }
+    if (minPriceCents !== undefined) {
+      products = products.filter((p: any) => (p.priceCents || 0) >= minPriceCents);
+    }
+    if (maxPriceCents !== undefined) {
+      products = products.filter((p: any) => (p.priceCents || 0) <= maxPriceCents);
+    }
+    if (inStockOnly) {
+      products = products.filter((p: any) => (p.currentStock || 0) > 0);
+    }
+
+    // 4. Apply In-Memory Sorting
+    products.sort((a: any, b: any) => {
+      let valA = a[sortBy];
+      let valB = b[sortBy];
+
+      // Handle Firestore Timestamps for createdAt
+      if (sortBy === "createdAt") {
+        valA = valA?.toMillis ? valA.toMillis() : 0;
+        valB = valB?.toMillis ? valB.toMillis() : 0;
+      }
+
+      if (valA < valB) return sortDirection === "asc" ? -1 : 1;
+      if (valA > valB) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    // 5. Apply Limit and Return
+    const limitedProducts = products.slice(0, limit);
     
-    const snapshot = await query.limit(limit).get();
-    const products = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
-    
-    return { success: true, products };
+    return { 
+      success: true, 
+      products: limitedProducts,
+      total: products.length // Useful for showing "X products found"
+    };
   } catch (error: any) {
     console.error("🔥 Error fetching public products:", error);
     throw new HttpsError("internal", `Failed to fetch products: ${error.message}`);
